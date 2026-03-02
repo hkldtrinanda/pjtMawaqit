@@ -1,0 +1,180 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mawaqit — CI/CD iOS
+# GitHub Actions + Unity Build + Firebase App Distribution (TestFlight)
+# ─────────────────────────────────────────────────────────────────────────────
+name: 🍎 Build iOS & Distribute
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UNITY_VERSION: 2022.3.20f1
+
+jobs:
+  # ───────────────────────────────────────────────
+  # JOB 1: Unity Build → Xcode Project
+  # ───────────────────────────────────────────────
+  build-ios:
+    name: 🔨 Build iOS (Xcode Project)
+    runs-on: ubuntu-latest   # Unity build di Linux, Xcode di macOS
+    outputs:
+      artifact-name: ${{ steps.set-output.outputs.artifact-name }}
+      version-name:  ${{ steps.versioning.outputs.version-name }}
+      version-code:  ${{ steps.versioning.outputs.version-code }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-iOS-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-iOS-
+            Library-
+
+      - name: Generate Version
+        id: versioning
+        run: |
+          VERSION_NAME=$(grep -m1 "bundleVersion:" ProjectSettings/ProjectSettings.asset | awk '{print $2}')
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "version-name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version-code=$VERSION_CODE" >> $GITHUB_OUTPUT
+
+      - name: Build iOS (Unity → Xcode Project)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE:  ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL:    ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion:   ${{ env.UNITY_VERSION }}
+          targetPlatform: iOS
+          buildName:      Mawaqit
+          buildsPath:     builds
+          buildMethod:    BuildScript.BuildiOS
+          customParameters: >
+            -versionName ${{ steps.versioning.outputs.version-name }}
+            -versionCode ${{ steps.versioning.outputs.version-code }}
+
+      - name: Set Artifact Name
+        id: set-output
+        run: |
+          echo "artifact-name=ios-xcode-${{ github.ref_name }}-${{ steps.versioning.outputs.version-name }}" >> $GITHUB_OUTPUT
+
+      - name: Upload Xcode Project
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-output.outputs.artifact-name }}
+          path: builds/iOS/
+          retention-days: 3
+
+  # ───────────────────────────────────────────────
+  # JOB 2: Xcode Archive → IPA (macOS runner)
+  # ───────────────────────────────────────────────
+  archive-ios:
+    name: 📦 Archive & Sign IPA
+    runs-on: macos-latest
+    needs: build-ios
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Xcode Project
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-ios.outputs.artifact-name }}
+          path: builds/iOS/
+
+      # ── Install Certificates & Provisioning Profile ───────────────────────
+      - name: Import Certificates
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64:  ${{ secrets.IOS_P12_BASE64 }}
+          p12-password:     ${{ secrets.IOS_P12_PASSWORD }}
+
+      - name: Download Provisioning Profile
+        uses: apple-actions/download-provisioning-profiles@v2
+        with:
+          bundle-id:         com.yourcompany.mawaqit
+          issuer-id:         ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id:        ${{ secrets.APPSTORE_API_KEY_ID }}
+          api-private-key:   ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      # ── Xcode Archive ─────────────────────────────────────────────────────
+      - name: Archive Xcode Project
+        run: |
+          XCODE_PROJ=$(find builds/iOS -name "*.xcodeproj" | head -1)
+          SCHEME=$(basename "$XCODE_PROJ" .xcodeproj)
+
+          xcodebuild archive \
+            -project "$XCODE_PROJ" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath builds/iOS/Mawaqit.xcarchive \
+            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Export IPA
+        run: |
+          cat > ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>teamID</key>
+            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath builds/iOS/Mawaqit.xcarchive \
+            -exportPath builds/iOS/IPA \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa-${{ github.ref_name }}-${{ needs.build-ios.outputs.version-name }}
+          path: builds/iOS/IPA/*.ipa
+          retention-days: 14
+
+      # ── Distribute ke Firebase App Distribution ───────────────────────────
+      - name: Upload to Firebase App Distribution
+        if: github.ref == 'refs/heads/develop'
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId:   ${{ secrets.FIREBASE_IOS_APP_ID }}
+          token:   ${{ secrets.FIREBASE_TOKEN }}
+          groups:  qa-team, ios-testers
+          file:    builds/iOS/IPA/Mawaqit.ipa
+
+      # ── Upload ke TestFlight (main branch) ────────────────────────────────
+      - name: Upload to TestFlight
+        if: github.ref == 'refs/heads/main'
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path:        builds/iOS/IPA/Mawaqit.ipa
+          issuer-id:       ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id:      ${{ secrets.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}

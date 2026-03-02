@@ -1,0 +1,274 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mawaqit — CI/CD Android
+# GitHub Actions + Unity Build + Firebase App Distribution
+# ─────────────────────────────────────────────────────────────────────────────
+name: 🤖 Build Android & Distribute
+
+on:
+  push:
+    branches:
+      - main          # Production → AAB ke Play Store track internal
+      - develop       # Staging    → APK ke Firebase App Distribution (QA)
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:  # Manual trigger dari GitHub UI
+    inputs:
+      build_type:
+        description: 'Build type (debug/release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options: [debug, release]
+
+# Batalkan run lama jika ada push baru di branch yang sama
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UNITY_VERSION: 2022.3.20f1          # Sesuaikan dengan versi Unity project
+  UNITY_LICENSE_FILE: Unity_v2022.x.ulf
+
+jobs:
+  # ───────────────────────────────────────────────
+  # JOB 1: Validasi & Test
+  # ───────────────────────────────────────────────
+  validate:
+    name: ✅ Validate & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true      # Penting untuk Unity assets besar
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-
+            Library-
+
+      - name: Run Unity Tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE:      ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL:        ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD:     ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion:       ${{ env.UNITY_VERSION }}
+          testMode:           all           # EditMode + PlayMode
+          artifactsPath:      test-results
+          githubToken:        ${{ secrets.GITHUB_TOKEN }}
+          checkName:          Unity Test Results
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results
+          retention-days: 7
+
+  # ───────────────────────────────────────────────
+  # JOB 2: Build Android
+  # ───────────────────────────────────────────────
+  build-android:
+    name: 🔨 Build Android
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      artifact-name: ${{ steps.set-output.outputs.artifact-name }}
+      version-name:  ${{ steps.versioning.outputs.version-name }}
+      version-code:  ${{ steps.versioning.outputs.version-code }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0   # Untuk git log versioning
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-
+            Library-
+
+      # ── Versioning otomatis ──────────────────────────────────────────────
+      - name: Generate Version
+        id: versioning
+        run: |
+          # Version name: dari ProjectSettings atau tag git
+          VERSION_NAME=$(grep -m1 "bundleVersion:" ProjectSettings/ProjectSettings.asset | awk '{print $2}')
+          # Version code: jumlah commit (auto-increment)
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "version-name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version-code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION_NAME ($VERSION_CODE)"
+
+      # ── Setup Keystore dari Secrets ──────────────────────────────────────
+      - name: Setup Android Keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/mawaqit.keystore
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/mawaqit.keystore" >> $GITHUB_ENV
+
+      # ── Tentukan build type berdasarkan branch ────────────────────────────
+      - name: Set Build Config
+        id: build-config
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "build-target=AAB"         >> $GITHUB_OUTPUT
+            echo "scripting-backend=IL2CPP" >> $GITHUB_OUTPUT
+            echo "development=false"        >> $GITHUB_OUTPUT
+            echo "output-name=Mawaqit.aab"  >> $GITHUB_OUTPUT
+          else
+            echo "build-target=APK"         >> $GITHUB_OUTPUT
+            echo "scripting-backend=Mono"   >> $GITHUB_OUTPUT
+            echo "development=true"         >> $GITHUB_OUTPUT
+            echo "output-name=Mawaqit.apk"  >> $GITHUB_OUTPUT
+          fi
+
+      # ── Unity Build ───────────────────────────────────────────────────────
+      - name: Build Android
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE:  ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL:    ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion:          ${{ env.UNITY_VERSION }}
+          targetPlatform:        Android
+          buildName:             Mawaqit
+          buildsPath:            builds
+          androidExportType:     ${{ steps.build-config.outputs.build-target == 'AAB' && 'androidAppBundle' || 'androidPackage' }}
+          androidKeystoreName:   mawaqit.keystore
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass:   ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          androidKeyaliasName:   ${{ secrets.ANDROID_KEY_ALIAS }}
+          androidKeyaliasPass:   ${{ secrets.ANDROID_KEY_PASS }}
+          buildMethod:           BuildScript.BuildAndroid   # Custom build method (lihat scripts/)
+          customParameters: >
+            -versionName ${{ steps.versioning.outputs.version-name }}
+            -versionCode ${{ steps.versioning.outputs.version-code }}
+            -development ${{ steps.build-config.outputs.development }}
+
+      - name: Set Artifact Name
+        id: set-output
+        run: |
+          ARTIFACT="android-${{ github.ref_name }}-${{ steps.versioning.outputs.version-name }}-${{ steps.versioning.outputs.version-code }}"
+          echo "artifact-name=$ARTIFACT" >> $GITHUB_OUTPUT
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-output.outputs.artifact-name }}
+          path: builds/Android/
+          retention-days: 14
+
+  # ───────────────────────────────────────────────
+  # JOB 3A: Firebase Distribution (develop branch → QA)
+  # ───────────────────────────────────────────────
+  distribute-firebase:
+    name: 🔥 Firebase App Distribution
+    runs-on: ubuntu-latest
+    needs: build-android
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-android.outputs.artifact-name }}
+          path: builds/Android/
+
+      - name: Find APK
+        id: find-apk
+        run: |
+          APK_PATH=$(find builds/Android -name "*.apk" | head -1)
+          echo "apk-path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "📱 APK: $APK_PATH"
+
+      # ── Generate Release Notes dari Git Log ───────────────────────────────
+      - name: Generate Release Notes
+        id: release-notes
+        run: |
+          NOTES=$(git log --oneline -10 --pretty=format:"• %s" | head -20)
+          VERSION="${{ needs.build-android.outputs.version-name }} (${{ needs.build-android.outputs.version-code }})"
+          BRANCH="${{ github.ref_name }}"
+          DATE=$(date '+%d %B %Y %H:%M WIB')
+
+          cat > release_notes.txt << EOF
+          🕌 Mawaqit — Build $VERSION
+          📅 $DATE
+          🌿 Branch: $BRANCH
+
+          📝 Perubahan:
+          $NOTES
+          EOF
+
+          echo "notes-file=release_notes.txt" >> $GITHUB_OUTPUT
+
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId:       ${{ secrets.FIREBASE_ANDROID_APP_ID }}
+          token:       ${{ secrets.FIREBASE_TOKEN }}           # firebase login:ci
+          groups:      qa-team, internal-testers               # Firebase tester groups
+          file:        ${{ steps.find-apk.outputs.apk-path }}
+          releaseNotesFile: ${{ steps.release-notes.outputs.notes-file }}
+
+      - name: Notify Slack (opsional)
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ Mawaqit Android build sukses!\nVersion: ${{ needs.build-android.outputs.version-name }}\nBranch: ${{ github.ref_name }}\nCek Firebase App Distribution untuk download."
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true   # Jangan gagalkan pipeline jika Slack error
+
+  # ───────────────────────────────────────────────
+  # JOB 3B: Google Play Internal Track (main branch → Production)
+  # ───────────────────────────────────────────────
+  deploy-playstore:
+    name: 🚀 Deploy to Play Store (Internal)
+    runs-on: ubuntu-latest
+    needs: build-android
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-android.outputs.artifact-name }}
+          path: builds/Android/
+
+      - name: Find AAB
+        id: find-aab
+        run: |
+          AAB_PATH=$(find builds/Android -name "*.aab" | head -1)
+          echo "aab-path=$AAB_PATH" >> $GITHUB_OUTPUT
+          echo "📦 AAB: $AAB_PATH"
+
+      - name: Upload to Play Store (Internal Track)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName:                 com.yourcompany.mawaqit   # ganti dengan package name
+          releaseFiles:                ${{ steps.find-aab.outputs.aab-path }}
+          track:                       internal
+          status:                      completed
+          whatsNewDirectory:           distribution/whatsnew     # opsional: release notes per bahasa
