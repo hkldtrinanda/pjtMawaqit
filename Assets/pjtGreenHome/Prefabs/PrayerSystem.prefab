@@ -1,0 +1,124 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &3673193964774966228
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7633289770673957307}
+  - component: {fileID: 8994292681579844135}
+  - component: {fileID: 6747136508008626137}
+  - component: {fileID: 1729350903228099785}
+  - component: {fileID: 3324898351307002317}
+  - component: {fileID: 6909445901115324513}
+  - component: {fileID: 9161315908546269079}
+  m_Layer: 0
+  m_Name: PrayerSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7633289770673957307
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -56.1534, y: 178.69397, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8994292681579844135
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 24f122ab10d86d44fb423b77038e6035, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.DayChangeWatcher
+--- !u!114 &6747136508008626137
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2db19479db042a944bb510115165c963, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.PrayerCountdown
+--- !u!114 &1729350903228099785
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d61b329ab5e7b27409b2e58fe324a197, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.PrayerTimeManager
+--- !u!114 &3324898351307002317
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 352975f2a39a97e4a88a71d12d733053, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.UI.PrayerUIController
+  _gridContainer: {fileID: 0}
+  _prayerItemPrefab: {fileID: 5360255905511679454, guid: b87f58da5b3e54c48ade6b1b2bb69a0a, type: 3}
+  _countdownLabel: {fileID: 0}
+  _nextPrayerLabel: {fileID: 0}
+  _dateLabel: {fileID: 0}
+  _cityNameLabel: {fileID: 0}
+  _coordsLabel: {fileID: 0}
+  _gpsStatusLabel: {fileID: 0}
+  _colorDetecting: {r: 1, g: 0.85, b: 0.2, a: 1}
+  _colorFound: {r: 0.3, g: 0.9, b: 0.5, a: 1}
+  _colorFallback: {r: 1, g: 0.5, b: 0.2, a: 1}
+  _loadingOverlay: {fileID: 0}
+  _errorLabel: {fileID: 0}
+--- !u!114 &6909445901115324513
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8658fb7a84ad934da53fee4726c8a22, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.LocationService
+--- !u!114 &9161315908546269079
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3673193964774966228}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7240f07313cb82a4d8750ca342ce46b2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrayerSystem.HadithService
