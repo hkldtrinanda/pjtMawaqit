@@ -1,0 +1,27 @@
+# Jalankan workflow ini SEKALI SAJA untuk mendapatkan Unity License file
+# Setelah dapat, workflow ini bisa dihapus
+
+name: 🔑 Get Unity License (Run Once)
+
+on:
+  workflow_dispatch:  # Manual trigger saja
+
+jobs:
+  get-license:
+    name: Request Unity License
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Request Unity License File
+        uses: game-ci/unity-request-activation-file@v2
+        with:
+          unityVersion: 2022.3.20f1   # ← sesuaikan versi Unity kamu
+
+      # Upload .alf file sebagai artifact — download dari GitHub Actions tab
+      - name: Upload Activation File
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-activation-file
+          path: Unity_v*.alf
+          retention-days: 1
